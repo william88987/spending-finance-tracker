@@ -668,8 +668,14 @@ export default function Dashboard() {
             return;
           }
           
-          const monthKey = format(new Date(transaction.date), 'MMM yyyy');
           const categoryName = transaction.category_name || 'Uncategorized';
+          
+          // Filter out Transfer and Income categories
+          if (categoryName === 'Transfer' || categoryName === 'Income') {
+            return;
+          }
+          
+          const monthKey = format(new Date(transaction.date), 'MMM yyyy');
           const amount = transaction.amount;
           
           if (!categoryMonthlyData.has(categoryName)) {
@@ -805,8 +811,14 @@ export default function Dashboard() {
             return;
           }
           
-          const monthKey = format(new Date(transaction.date), 'MMM yyyy');
           const categoryName = transaction.category_name || 'Uncategorized';
+          
+          // Filter out Transfer and Income categories
+          if (categoryName === 'Transfer' || categoryName === 'Income') {
+            return;
+          }
+          
+          const monthKey = format(new Date(transaction.date), 'MMM yyyy');
           const amount = transaction.amount;
           const color = getCategoryColor(transaction.category_color, true);
           
