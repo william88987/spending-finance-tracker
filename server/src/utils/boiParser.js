@@ -145,7 +145,8 @@ export async function parseBoiStatement(pdfBuffer) {
               description.toLowerCase().includes('balance forward')) {
             console.log(`Skipping summary line: ${description}`);
           } else if (description && description.length > 2) {
-            const transaction = createTransaction(currentDate, description, amounts[0], amounts);
+            // Pass the original line for better POS detection
+            const transaction = createTransaction(currentDate, description, amounts[0], amounts, restOfLine);
             transactions.push(transaction);
             console.log(`Added transaction: ${transaction.date} - ${transaction.description} - €${transaction.amount} (${transaction.type})`);
           }
@@ -178,7 +179,8 @@ export async function parseBoiStatement(pdfBuffer) {
               description.toLowerCase().includes('balance forward')) {
             console.log(`Skipping summary line: ${description}`);
           } else if (description && description.length > 2) {
-            const transaction = createTransaction(currentDate, description, amounts[0], amounts);
+            // Pass the original line for better POS detection
+            const transaction = createTransaction(currentDate, description, amounts[0], amounts, line);
             transactions.push(transaction);
             console.log(`Added transaction: ${transaction.date} - ${transaction.description} - €${transaction.amount} (${transaction.type})`);
           }
@@ -187,7 +189,7 @@ export async function parseBoiStatement(pdfBuffer) {
     }
     
     // Helper function to create transaction object
-    function createTransaction(dateStr, description, amount, allAmounts) {
+    function createTransaction(dateStr, description, amount, allAmounts, originalLine = '') {
       // Convert "27 Jun 2025" to "2025-06-27"
       const months = {
         'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04', 'may': '05', 'jun': '06',
@@ -203,32 +205,33 @@ export async function parseBoiStatement(pdfBuffer) {
       // Determine transaction type based on BOI statement patterns
       let type = 'expense'; // Default to expense
       
-      // Income patterns - BOI uses "SP" to indicate payments-in (credits)
-      if (description.toLowerCase().includes(' sp') || 
-          description.toLowerCase().endsWith(' sp') ||
-          description.toLowerCase().includes('salary') || 
-          description.toLowerCase().includes('wages') || 
-          description.toLowerCase().includes('cr') ||
-          description.toLowerCase().includes('credit') ||
-          description.toLowerCase().includes('deposit') ||
-          description.toLowerCase().includes('refund') ||
-          description.toLowerCase().includes('lodgement') ||
-          description.toLowerCase().includes('transfer in')) {
-        type = 'income';
-      }
+      // POS (Point of Sale) transactions are ALWAYS expenses - check first
+      // Check both description and original line to catch patterns like "10-13POS10OCT"
+      const lowerDesc = description.toLowerCase();
+      const lowerOriginal = originalLine.toLowerCase();
       
-      // Specific case for POS14JUL PAYZONE based on user feedback
-      if (description.toLowerCase().includes('pos14jul payzone')) {
-        type = 'income';
-      }
-      
-      // Force expense for certain patterns regardless of SP
-      if (description.toLowerCase().includes('sepa dd') ||
-          description.toLowerCase().includes('direct debit') ||
-          description.toLowerCase().includes('fee:') ||
-          description.toLowerCase().includes('charge') ||
-          description.toLowerCase().includes('cloud pic')) {
+      if (lowerDesc.includes('pos') || lowerOriginal.includes('pos')) {
         type = 'expense';
+      }
+      // Force expense for certain patterns
+      else if (lowerDesc.includes('sepa dd') ||
+          lowerDesc.includes('direct debit') ||
+          lowerDesc.includes('fee:') ||
+          lowerDesc.includes('charge') ||
+          lowerDesc.includes('imbibe')) {
+        type = 'expense';
+      }
+      // Income patterns - Note: "SP" alone is NOT a reliable indicator
+      // SP can appear in both payment-in and payment-out columns
+      else if (lowerDesc.includes('salary') || 
+          lowerDesc.includes('wages') || 
+          lowerDesc.includes('cr') ||
+          lowerDesc.includes('credit') ||
+          lowerDesc.includes('deposit') ||
+          lowerDesc.includes('refund') ||
+          lowerDesc.includes('lodgement') ||
+          lowerDesc.includes('transfer in')) {
+        type = 'income';
       }
       
       return {
@@ -417,29 +420,31 @@ function parseTransactionLine(date, line, previousBalance) {
   // Determine transaction type more accurately
   let type = 'expense'; // Default to expense
   
-  // First check for clear income indicators in description
-  const incomeIndicators = ['SP', 'CREDIT', 'DEPOSIT', 'SALARY', 'REFUND', 'ONLINE', 'CR'];
-  const expenseIndicators = ['POS', 'POSC', 'DD', 'SEPA DD', 'FEE'];
-  
   const upperDesc = description.toUpperCase();
   const upperLine = line.toUpperCase();
   
+  // POS transactions are ALWAYS expenses - check first
+  if (upperDesc.includes('POS') || upperLine.includes('POS')) {
+    type = 'expense';
+  }
+  // Override with other expense patterns (more specific)
+  else if (upperLine.includes('DD') ||
+      upperLine.includes('SEPA DD') ||
+      upperLine.includes('FEE:')) {
+    type = 'expense';
+  }
   // Check for income patterns
-  if (incomeIndicators.some(indicator => upperDesc.includes(indicator)) ||
-      upperLine.includes(' SP') || // Special payment indicator
+  else if (upperDesc.includes('SP') ||
+      upperDesc.includes('CREDIT') ||
+      upperDesc.includes('DEPOSIT') ||
+      upperDesc.includes('SALARY') ||
+      upperDesc.includes('REFUND') ||
       upperDesc.includes('ONLINE') ||
+      upperDesc.includes('CR') ||
+      upperLine.includes(' SP') || // Special payment indicator
       upperDesc.includes('HENRIETTA') || // Salary/payment
       upperDesc.includes('SANTRY CR')) { // Credit
     type = 'income';
-  }
-  
-  // Override with expense patterns (more specific)
-  if (expenseIndicators.some(indicator => upperLine.includes(indicator)) ||
-      upperLine.startsWith('POS') ||
-      upperLine.startsWith('POSC') ||
-      upperLine.includes('FEE:') ||
-      upperLine.includes('SEPA DD')) {
-    type = 'expense';
   }
   
   // Use balance change as final validation if available

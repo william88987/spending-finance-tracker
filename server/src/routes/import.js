@@ -506,13 +506,20 @@ router.post('/boi-upload', authenticateToken, uploadPdf.single('pdfFile'), async
         status = status === 'valid' ? 'category_mismatch' : status;
       }
 
+      // Override type based on category name for specific income categories
+      let transactionType = transaction.type;
+      const incomeCategories = ['rental income', 'child benefit', 'income'];
+      if (incomeCategories.includes(suggestedCategory.toLowerCase())) {
+        transactionType = 'income';
+      }
+
       validationResults.push({
         rowIndex: i,
         data: {
           date: transaction.date,
           description: transaction.description,
           amount: transaction.amount,
-          type: transaction.type,
+          type: transactionType,
           category: suggestedCategory,
           source: transaction.source,
           balance: transaction.balance
@@ -612,11 +619,18 @@ router.post('/boi-import', authenticateToken, [
           categoryId = newCategory.id;
         }
 
+        // Override type based on category name for specific income categories
+        let type = transaction.type;
+        const incomeCategories = ['rental income', 'child benefit', 'income'];
+        if (incomeCategories.includes(capitalizedCategoryName.toLowerCase())) {
+          type = 'income';
+        }
+        
         // Insert transaction
         const result = await runQuery(
           `INSERT INTO transactions (description, amount, type, category_id, user_id, date, source) 
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [transaction.description, transaction.amount, transaction.type, categoryId, req.userId, transaction.date, transaction.source || 'BOI']
+          [transaction.description, transaction.amount, type, categoryId, req.userId, transaction.date, transaction.source || 'BOI']
         );
 
         importedTransactions.push({
