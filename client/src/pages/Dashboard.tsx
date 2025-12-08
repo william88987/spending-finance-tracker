@@ -1,20 +1,21 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { getCurrencySymbol, formatAmountWithCurrency } from "@/utils/currency";
-import { 
-  ChevronLeft, 
-  ChevronRight, 
+import {
+  ChevronLeft,
+  ChevronRight,
   ChevronDown,
-  TrendingUp, 
-  TrendingDown, 
+  TrendingUp,
+  TrendingDown,
   DollarSign,
   Building,
   ArrowUp,
-  ArrowDown, 
+  ArrowDown,
   PieChart,
   Calendar as CalendarIcon,
   Tag,
@@ -135,6 +136,7 @@ interface Transaction {
   description: string;
   amount: number;
   type: 'income' | 'expense' | 'capex';
+  category_id: number;
   category_name: string;
   category_color: string;
   category_icon?: string;
@@ -152,6 +154,7 @@ interface CategorySpending {
 }
 
 interface MonthlyCategorySpending {
+  category_id: number;
   category_name: string;
   category_color: string;
   category_icon?: string;
@@ -220,6 +223,7 @@ export default function Dashboard() {
   const [showOnlyRegularCategories, setShowOnlyRegularCategories] = useState<boolean>(false);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const lastTransactionRef = useRef<HTMLTableRowElement | null>(null);
+  const navigate = useNavigate();
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -346,60 +350,60 @@ export default function Dashboard() {
       'briefcase': Briefcase,
       'trending-up': TrendingUpIcon,
       'more-horizontal': MoreHorizontal,
-      
+
       // Food & Dining
       'utensils': Utensils,
       'coffee': Coffee,
       'shopping-cart': ShoppingCart,
-      
+
       // Transportation
       'wrench': Wrench,
       'fuel': Fuel,
       'parking-circle': ParkingCircle,
       'plane': Plane,
-      
+
       // Shopping & Retail
       'shirt': Shirt,
       'sofa': Sofa,
       'book-open': BookOpen,
       'pen-tool': PenTool,
       'gift': Gift,
-      
+
       // Health & Medical
       'stethoscope': Stethoscope,
       'pill': Pill,
-      
+
       // Home & Utilities
       'shield': Shield,
       'file-text': FileText,
       'building': Building,
       'trees': Trees,
       'tree': Trees, // Map 'tree' to 'Trees' icon
-      
+
       // Business & Work
       'package': Package,
       'repeat': Repeat,
-      
+
       // Services
       'mail': Mail,
       'truck': Truck,
       'tv': Tv,
-      
+
       // Technology & Communication
       'smartphone': Smartphone,
-      
+
       // Energy & Environment
       'sun': Sun,
-      
+
       // Education & Family
       'graduation-cap': GraduationCap,
       'baby': Baby,
-      
+
       // Other
       'circle-dot': CircleDot,
       'help-circle': HelpCircle,
       'credit-card': CreditCard,
-      
+
       // Additional icons for variety
       'camera': Camera,
       'music': Music,
@@ -466,23 +470,23 @@ export default function Dashboard() {
     try {
       setLoading(true);
       const { start, end } = getDateRange(range);
-      
+
       console.log('Fetching summary data for:', start, 'to', end);
-      
+
       // Fetch all transactions for summary calculations (no pagination needed for summary)
       const response = await apiClient.request(`/transactions?start_date=${start}&end_date=${end}&limit=999999`);
-      
+
       console.log('Summary API Response:', response);
-      
+
       if (response.transactions) {
         const transactions = response.transactions || [];
         console.log('Transactions found for summary:', transactions.length);
-        
-        const totalIncome = transactions.reduce((sum: number, t: Transaction) => 
+
+        const totalIncome = transactions.reduce((sum: number, t: Transaction) =>
           sum + (t.type === 'income' && t.category_name !== 'Bank-in' ? t.amount : 0), 0);
-        const totalSpending = transactions.reduce((sum: number, t: Transaction) => 
+        const totalSpending = transactions.reduce((sum: number, t: Transaction) =>
           sum + (t.type === 'expense' ? t.amount : 0), 0);
-        const totalCapex = transactions.reduce((sum: number, t: Transaction) => 
+        const totalCapex = transactions.reduce((sum: number, t: Transaction) =>
           sum + (t.type === 'capex' ? t.amount : 0), 0);
         const netIncome = totalIncome - totalSpending;
         const savingsRate = totalIncome > 0 ? (netIncome / totalIncome) * 100 : 0;
@@ -502,7 +506,7 @@ export default function Dashboard() {
       }
     } catch (error) {
       console.error('Error fetching summary data:', error);
-      
+
       // Fallback to sample data for demonstration
       console.log('Using fallback sample data');
       setDashboardData({
@@ -523,35 +527,35 @@ export default function Dashboard() {
       if (page === 1 || reset) {
         setTransactionsLoading(true);
       }
-      
+
       const { start, end } = getDateRange(range);
       const limit = 50; // Load 50 transactions at a time
-      
+
       console.log('Fetching transactions page:', page, 'for:', start, 'to', end);
-      
+
       const response = await apiClient.request(`/transactions?start_date=${start}&end_date=${end}&limit=${limit}&page=${page}`);
-      
+
       console.log('Transactions API Response:', response);
-      
+
       if (response.transactions) {
         const newTransactions = response.transactions || [];
         console.log('New transactions loaded:', newTransactions.length);
-        
+
         if (reset || page === 1) {
           setAllTransactions(newTransactions);
         } else {
           setAllTransactions(prev => [...prev, ...newTransactions]);
         }
-        
+
         // Check if there are more transactions to load and set total count
         const hasMore = response.pagination && response.pagination.page < response.pagination.pages;
         setHasMoreTransactions(hasMore);
-        
+
         // Set total transaction count from pagination info
         if (response.pagination && response.pagination.total !== undefined) {
           setTotalTransactionCount(response.pagination.total);
         }
-        
+
         console.log('Has more transactions:', hasMore);
         console.log('Total transactions:', response.pagination?.total);
       } else {
@@ -569,17 +573,17 @@ export default function Dashboard() {
   const fetchCategorySpending = async (range: { from: Date; to: Date }) => {
     try {
       const { start, end } = getDateRange(range);
-      
+
       console.log('Fetching category spending for:', start, 'to', end);
-      
+
       // Fetch only expense transactions for category analysis (excluding capex)
       const expenseResponse = await apiClient.request(`/transactions?start_date=${start}&end_date=${end}&type=expense&limit=999999`);
-      
+
       console.log('Category spending API Response:', expenseResponse);
-      
+
       if (expenseResponse.transactions) {
         const transactions = expenseResponse.transactions || [];
-        
+
         // Group transactions by category and calculate totals
         const categoryMap = new Map<string, {
           category_name: string;
@@ -588,19 +592,19 @@ export default function Dashboard() {
           total_amount: number;
           transaction_count: number;
         }>();
-        
+
         let totalExpenses = 0;
-        
+
         transactions.forEach((transaction: Transaction) => {
           // Explicitly exclude capex transactions
           if (transaction.type === 'capex') {
             return;
           }
-          
+
           const categoryName = transaction.category_name || 'Uncategorized';
           const amount = transaction.amount;
           totalExpenses += amount;
-          
+
           if (categoryMap.has(categoryName)) {
             const existing = categoryMap.get(categoryName)!;
             existing.total_amount += amount;
@@ -615,16 +619,16 @@ export default function Dashboard() {
             });
           }
         });
-        
+
         // Convert to array and calculate percentages
         const categorySpendingData: CategorySpending[] = Array.from(categoryMap.values()).map(category => ({
           ...category,
           percentage: totalExpenses > 0 ? (category.total_amount / totalExpenses) * 100 : 0
         }));
-        
+
         // Sort by highest spending first
         categorySpendingData.sort((a, b) => b.total_amount - a.total_amount);
-        
+
         setCategorySpending(categorySpendingData);
         console.log('Category spending data:', categorySpendingData);
       } else {
@@ -640,61 +644,64 @@ export default function Dashboard() {
   const fetchMonthlyCategorySpending = async (range: { from: Date; to: Date }) => {
     try {
       const { start, end } = getDateRange(range);
-      
+
       console.log('Fetching monthly category spending for:', start, 'to', end);
-      
+
       // Fetch only expense transactions for monthly category analysis
       const expenseResponse = await apiClient.request(`/transactions?start_date=${start}&end_date=${end}&type=expense&limit=999999`);
-      
+
       if (expenseResponse.transactions) {
         const transactions = expenseResponse.transactions || [];
-        
+
         // Group transactions by category and month
         const categoryMonthlyData = new Map<string, {
+          category_id: number;
           category_name: string;
           category_color: string;
           category_icon?: string;
           monthly_amounts: Map<string, number>;
         }>();
-        
+
         transactions.forEach((transaction: Transaction) => {
           // Explicitly exclude capex transactions
           if (transaction.type === 'capex') {
             return;
           }
-          
+
           // Filter out once-off categories if toggle is enabled
           if (showOnlyRegularCategories && transaction.category_is_once_off) {
             return;
           }
-          
+
           const categoryName = transaction.category_name || 'Uncategorized';
-          
+          const categoryId = transaction.category_id || 0;
+
           // Filter out Transfer and Income categories
           if (categoryName === 'Transfer' || categoryName === 'Income') {
             return;
           }
-          
+
           const monthKey = format(new Date(transaction.date), 'MMM yyyy');
           const amount = transaction.amount;
-          
+
           if (!categoryMonthlyData.has(categoryName)) {
             categoryMonthlyData.set(categoryName, {
+              category_id: categoryId,
               category_name: categoryName,
               category_color: transaction.category_color,
               category_icon: transaction.category_icon,
               monthly_amounts: new Map()
             });
           }
-          
+
           const categoryData = categoryMonthlyData.get(categoryName)!;
           const currentAmount = categoryData.monthly_amounts.get(monthKey) || 0;
           categoryData.monthly_amounts.set(monthKey, currentAmount + amount);
         });
-        
+
         // Convert to final format with percentage calculations
         const monthlyCategoryData: MonthlyCategorySpending[] = [];
-        
+
         // Get all unique months in chronological order
         const allMonths = new Set<string>();
         categoryMonthlyData.forEach(categoryData => {
@@ -702,7 +709,7 @@ export default function Dashboard() {
             allMonths.add(monthKey);
           });
         });
-        
+
         // Sort months chronologically by parsing the month from transactions
         const monthsWithDates = Array.from(allMonths).map(monthKey => {
           // Find a transaction from this month to get the actual date
@@ -718,20 +725,20 @@ export default function Dashboard() {
         const sortedMonths = monthsWithDates
           .sort((a, b) => a.date.getTime() - b.date.getTime())
           .map(item => item.monthKey);
-        
+
         categoryMonthlyData.forEach(categoryData => {
           const monthly_amounts: { [monthKey: string]: { amount: number; change_percentage?: number; change_direction?: 'up' | 'down' | 'same' } } = {};
-          
+
           let previousAmount = 0;
           sortedMonths.forEach(monthKey => {
             const amount = categoryData.monthly_amounts.get(monthKey) || 0;
             let change_percentage: number | undefined;
             let change_direction: 'up' | 'down' | 'same' | undefined;
-            
+
             if (previousAmount > 0) {
               const changePercent = ((amount - previousAmount) / previousAmount) * 100;
               change_percentage = Math.abs(changePercent);
-              
+
               if (changePercent > 0) {
                 change_direction = 'up';
               } else if (changePercent < 0) {
@@ -740,22 +747,23 @@ export default function Dashboard() {
                 change_direction = 'same';
               }
             }
-            
+
             monthly_amounts[monthKey] = {
               amount,
               change_percentage,
               change_direction
             };
-            
+
             if (amount > 0) {
               previousAmount = amount;
             }
           });
-          
+
           // Only include categories that have spending in at least one month
           const hasSpending = Object.values(monthly_amounts).some(month => month.amount > 0);
           if (hasSpending) {
             monthlyCategoryData.push({
+              category_id: categoryData.category_id,
               category_name: categoryData.category_name,
               category_color: categoryData.category_color,
               category_icon: categoryData.category_icon,
@@ -763,14 +771,14 @@ export default function Dashboard() {
             });
           }
         });
-        
+
         // Sort by total spending across all months
         monthlyCategoryData.sort((a, b) => {
           const totalA = Object.values(a.monthly_amounts).reduce((sum, month) => sum + month.amount, 0);
           const totalB = Object.values(b.monthly_amounts).reduce((sum, month) => sum + month.amount, 0);
           return totalB - totalA;
         });
-        
+
         setMonthlyCategorySpending(monthlyCategoryData);
         console.log('Monthly category spending data:', monthlyCategoryData);
       } else {
@@ -786,54 +794,54 @@ export default function Dashboard() {
   const fetchMonthlyChartData = async (range: { from: Date; to: Date }, categoryCount: string = "5") => {
     try {
       const { start, end } = getDateRange(range);
-      
+
       console.log('Fetching monthly chart data for:', start, 'to', end);
       console.log('showOnlyRegularCategories:', showOnlyRegularCategories);
-      
+
       // Fetch only expense transactions for chart analysis (excluding capex)
       const expenseResponse = await apiClient.request(`/transactions?start_date=${start}&end_date=${end}&type=expense&limit=999999`);
-      
+
       if (expenseResponse.transactions) {
         const transactions = expenseResponse.transactions || [];
-        
+
         // Group transactions by month and category
         const monthlyData = new Map<string, Map<string, { amount: number; color: string }>>();
         const categoryTotals = new Map<string, { total: number; color: string }>();
-        
+
         transactions.forEach((transaction: Transaction) => {
           // Explicitly exclude capex transactions
           if (transaction.type === 'capex') {
             return;
           }
-          
+
           // Filter out once-off categories if toggle is enabled (consistent with table)
           if (showOnlyRegularCategories && transaction.category_is_once_off) {
             return;
           }
-          
+
           const categoryName = transaction.category_name || 'Uncategorized';
-          
+
           // Filter out Transfer and Income categories
           if (categoryName === 'Transfer' || categoryName === 'Income') {
             return;
           }
-          
+
           const monthKey = format(new Date(transaction.date), 'MMM yyyy');
           const amount = transaction.amount;
           const color = getCategoryColor(transaction.category_color, true);
-          
+
           // Track monthly data
           if (!monthlyData.has(monthKey)) {
             monthlyData.set(monthKey, new Map());
           }
           const monthMap = monthlyData.get(monthKey)!;
-          
+
           if (monthMap.has(categoryName)) {
             monthMap.get(categoryName)!.amount += amount;
           } else {
             monthMap.set(categoryName, { amount, color });
           }
-          
+
           // Track category totals for top selection
           if (categoryTotals.has(categoryName)) {
             categoryTotals.get(categoryName)!.total += amount;
@@ -841,40 +849,40 @@ export default function Dashboard() {
             categoryTotals.set(categoryName, { total: amount, color });
           }
         });
-        
+
         // Get top X categories by total spending
         const allSortedCategories = Array.from(categoryTotals.entries())
-          .sort(([,a], [,b]) => b.total - a.total);
-        
-        const categoriesToShow = categoryCount === "all" 
-          ? allSortedCategories 
+          .sort(([, a], [, b]) => b.total - a.total);
+
+        const categoriesToShow = categoryCount === "all"
+          ? allSortedCategories
           : allSortedCategories.slice(0, parseInt(categoryCount));
-        
+
         const topCategories: ChartCategoryData[] = categoriesToShow.map(([name, data]) => ({
           name,
           color: data.color,
           total: data.total
         }));
-        
+
         // Create chart data structure
         const chartData: MonthlySpendingData[] = Array.from(monthlyData.entries()).map(([month, categoryMap]) => {
           const monthData: MonthlySpendingData = { month };
-          
+
           // Add data for each of the selected top categories
           topCategories.forEach(category => {
             const categoryData = categoryMap.get(category.name);
             monthData[category.name] = categoryData ? categoryData.amount : 0;
           });
-          
+
           return monthData;
         });
-        
+
         // Sort chart data by month chronologically
         chartData.sort((a, b) => new Date(a.month).getTime() - new Date(b.month).getTime());
-        
+
         setMonthlyChartData(chartData);
         setChartCategories(topCategories);
-        
+
         console.log('Monthly chart data:', chartData);
         console.log('Chart categories:', topCategories);
       } else {
@@ -906,7 +914,7 @@ export default function Dashboard() {
     setMonthlyChartData([]);
     setChartCategories([]);
     setCurrentMonthPage(0);
-    
+
     // Fetch summary data, category spending, monthly category spending, chart data, and initial transactions
     fetchSummaryData(dateRange);
     fetchCategorySpending(dateRange);
@@ -934,7 +942,7 @@ export default function Dashboard() {
   const lastTransactionElementRef = useCallback((node: HTMLTableRowElement | null) => {
     if (transactionsLoading) return;
     if (observerRef.current) observerRef.current.disconnect();
-    
+
     observerRef.current = new IntersectionObserver(entries => {
       if (entries[0].isIntersecting && hasMoreTransactions) {
         console.log('Loading more transactions...');
@@ -945,7 +953,7 @@ export default function Dashboard() {
         });
       }
     });
-    
+
     if (node) observerRef.current.observe(node);
   }, [transactionsLoading, hasMoreTransactions, dateRange]);
 
@@ -1273,8 +1281,8 @@ export default function Dashboard() {
                               entry.value > 0 && (
                                 <div key={index} className="flex items-center justify-between mb-1">
                                   <div className="flex items-center">
-                                    <div 
-                                      className="w-3 h-3 rounded mr-2" 
+                                    <div
+                                      className="w-3 h-3 rounded mr-2"
                                       style={{ backgroundColor: entry.color }}
                                     />
                                     <span className="text-xs">{entry.dataKey}</span>
@@ -1417,93 +1425,102 @@ export default function Dashboard() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                {monthlyCategorySpending.map((category) => {
-                  const IconComponent = getCategoryIcon(category.category_icon);
-                  return (
-                    <TableRow key={category.category_name}>
-                      <TableCell className="px-2 py-2 sticky left-0 bg-background z-10">
-                        <div className="flex items-center gap-1">
-                          {category.category_icon ? (
-                            <IconComponent
-                              className="w-2.5 h-2.5 md:w-3 md:h-3 flex-shrink-0"
-                              style={{ color: getCategoryColor(category.category_color) }}
-                            />
-                          ) : (
+                    {monthlyCategorySpending.map((category) => {
+                      const IconComponent = getCategoryIcon(category.category_icon);
+                      return (
+                        <TableRow key={category.category_name}>
+                          <TableCell className="px-2 py-2 sticky left-0 bg-background z-10">
                             <div
-                              className="w-2.5 h-2.5 md:w-3 md:h-3 rounded-full flex-shrink-0"
-                              style={{ backgroundColor: getCategoryColor(category.category_color) }}
-                            />
-                          )}
-                          <div className="text-xs md:text-sm font-medium truncate" title={category.category_name}>
-                            {category.category_name}
-                          </div>
+                              className="flex items-center gap-1 cursor-pointer group"
+                              onClick={() => {
+                                navigate(`/transactions?categoryId=${category.category_id}`);
+                              }}
+                            >
+                              {category.category_icon ? (
+                                <IconComponent
+                                  className="w-2.5 h-2.5 md:w-3 md:h-3 flex-shrink-0 group-hover:text-blue-600 transition-colors"
+                                  style={{ color: getCategoryColor(category.category_color) }}
+                                />
+                              ) : (
+                                <div
+                                  className="w-2.5 h-2.5 md:w-3 md:h-3 rounded-full flex-shrink-0"
+                                  style={{ backgroundColor: getCategoryColor(category.category_color) }}
+                                />
+                              )}
+                              <div className="text-xs md:text-sm font-medium truncate group-hover:text-blue-600 group-hover:underline transition-colors" title={category.category_name}>
+                                {category.category_name}
+                              </div>
+                            </div>
+                          </TableCell>
+                          {/* Dynamic month data - show current 8 months only */}
+                          {getCurrentMonths().map(month => {
+                            const data = category.monthly_amounts[month];
+                            return (
+                              <TableCell key={month} className="px-1 py-2 text-right">
+                                {data && data.amount > 0 ? (
+                                  <div
+                                    className="relative group inline-block"
+                                    onClick={() => {
+                                      navigate(`/transactions?month=${encodeURIComponent(month)}&categoryId=${category.category_id}`);
+                                    }}
+                                  >
+                                    <span className="text-xs md:text-sm font-medium text-gray-900 dark:text-gray-100 cursor-pointer whitespace-nowrap hover:text-blue-600 hover:underline">
+                                      {getCurrencySymbol(baseCurrency)}{data.amount.toFixed(0)}
+                                    </span>
+                                    {data.change_direction && data.change_percentage !== undefined && (
+                                      <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-2 px-2 py-1 bg-black text-white text-xs rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-[1000]">
+                                        <div className="flex items-center gap-1">
+                                          {data.change_direction === 'up' ? (
+                                            <ArrowUp className="w-3 h-3 text-green-400" />
+                                          ) : data.change_direction === 'down' ? (
+                                            <ArrowDown className="w-3 h-3 text-red-400" />
+                                          ) : null}
+                                          <span className={`${data.change_direction === 'up' ? 'text-green-400' :
+                                            data.change_direction === 'down' ? 'text-red-400' :
+                                              'text-gray-300'
+                                            }`}>
+                                            {data.change_percentage.toFixed(0)}%
+                                          </span>
+                                        </div>
+                                        {/* Tooltip arrow */}
+                                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-b-black"></div>
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-gray-400 text-xs md:text-sm">-</span>
+                                )}
+                              </TableCell>
+                            );
+                          })}
+                        </TableRow>
+                      );
+                    })}
+
+                    {/* Total Row */}
+                    <TableRow className="border-t-2 border-gray-300 bg-gray-50 dark:bg-gray-800">
+                      <TableCell className="px-2 py-2 font-bold sticky left-0 bg-gray-50 dark:bg-gray-800 z-10">
+                        <div className="flex items-center gap-1">
+                          <div className="w-2.5 h-2.5 md:w-3 md:h-3 bg-gray-500 rounded-full flex-shrink-0"></div>
+                          <div className="text-xs md:text-sm font-bold">Total</div>
                         </div>
                       </TableCell>
-                      {/* Dynamic month data - show current 8 months only */}
+                      {/* Calculate and display monthly totals */}
                       {getCurrentMonths().map(month => {
-                        const data = category.monthly_amounts[month];
+                        const monthTotal = monthlyCategorySpending.reduce((total, category) => {
+                          const data = category.monthly_amounts[month];
+                          return total + (data?.amount || 0);
+                        }, 0);
+
                         return (
-                          <TableCell key={month} className="px-1 py-2 text-right">
-                            {data && data.amount > 0 ? (
-                              <div className="relative group inline-block">
-                                <span className="text-xs md:text-sm font-medium text-gray-900 dark:text-gray-100 cursor-pointer whitespace-nowrap">
-                                  {getCurrencySymbol(baseCurrency)}{data.amount.toFixed(0)}
-                                </span>
-                                {data.change_direction && data.change_percentage !== undefined && (
-                                  <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-2 px-2 py-1 bg-black text-white text-xs rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-[1000]">
-                                    <div className="flex items-center gap-1">
-                                      {data.change_direction === 'up' ? (
-                                        <ArrowUp className="w-3 h-3 text-green-400" />
-                                      ) : data.change_direction === 'down' ? (
-                                        <ArrowDown className="w-3 h-3 text-red-400" />
-                                      ) : null}
-                                      <span className={`${
-                                        data.change_direction === 'up' ? 'text-green-400' :
-                                        data.change_direction === 'down' ? 'text-red-400' :
-                                        'text-gray-300'
-                                      }`}>
-                                        {data.change_percentage.toFixed(0)}%
-                                      </span>
-                                    </div>
-                                    {/* Tooltip arrow */}
-                                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-b-black"></div>
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-gray-400 text-xs md:text-sm">-</span>
-                            )}
+                          <TableCell key={month} className="px-1 py-2 text-right font-bold">
+                            <span className="text-xs md:text-sm font-bold text-gray-900 dark:text-gray-100 whitespace-nowrap">
+                              {getCurrencySymbol(baseCurrency)}{monthTotal.toFixed(0)}
+                            </span>
                           </TableCell>
                         );
                       })}
                     </TableRow>
-                    );
-                  })}
-                  
-                  {/* Total Row */}
-                  <TableRow className="border-t-2 border-gray-300 bg-gray-50 dark:bg-gray-800">
-                    <TableCell className="px-2 py-2 font-bold sticky left-0 bg-gray-50 dark:bg-gray-800 z-10">
-                      <div className="flex items-center gap-1">
-                        <div className="w-2.5 h-2.5 md:w-3 md:h-3 bg-gray-500 rounded-full flex-shrink-0"></div>
-                        <div className="text-xs md:text-sm font-bold">Total</div>
-                      </div>
-                    </TableCell>
-                    {/* Calculate and display monthly totals */}
-                    {getCurrentMonths().map(month => {
-                      const monthTotal = monthlyCategorySpending.reduce((total, category) => {
-                        const data = category.monthly_amounts[month];
-                        return total + (data?.amount || 0);
-                      }, 0);
-
-                      return (
-                        <TableCell key={month} className="px-1 py-2 text-right font-bold">
-                          <span className="text-xs md:text-sm font-bold text-gray-900 dark:text-gray-100 whitespace-nowrap">
-                            {getCurrencySymbol(baseCurrency)}{monthTotal.toFixed(0)}
-                          </span>
-                        </TableCell>
-                      );
-                    })}
-                  </TableRow>
                   </TableBody>
                 </Table>
               </div>

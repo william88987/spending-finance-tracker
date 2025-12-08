@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
+import { startOfMonth, endOfMonth, parse, format } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { 
-  Filter, 
-  Search, 
-  Download, 
+import {
+  Filter,
+  Search,
+  Download,
   Plus,
   Edit,
   Trash2,
@@ -179,7 +181,7 @@ interface TransactionFormData {
 }
 
 interface FilterData {
-  type?: 'income' | 'expense';
+  type?: 'income' | 'expense' | 'capex';
   category_id?: number;
   source?: string;
   start_date?: string;
@@ -200,7 +202,7 @@ export default function Transactions() {
     total: 0,
     pages: 0
   });
-  
+
   // Dialog states
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -227,9 +229,10 @@ export default function Transactions() {
   const [submitting, setSubmitting] = useState(false);
   const [baseCurrency, setBaseCurrency] = useState<string>('USD');
   const [availableCurrencies, setAvailableCurrencies] = useState<string[]>(['USD']);
-  
+
   const { toast } = useToast();
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [searchParams] = useSearchParams();
 
   const recordLimitOptions = [10, 20, 50, 100, 200, 500];
 
@@ -238,15 +241,15 @@ export default function Transactions() {
       const settings = await apiClient.getSettings();
       const baseCurr = settings.base_currency || 'USD';
       const extraCurr = settings.extra_currencies || [];
-      
+
       setBaseCurrency(baseCurr);
-      
+
       // Create list of available currencies: base currency + extra currencies
-      const currencies = [baseCurr, ...extraCurr].filter((curr, index, arr) => 
+      const currencies = [baseCurr, ...extraCurr].filter((curr, index, arr) =>
         arr.indexOf(curr) === index // Remove duplicates
       );
       setAvailableCurrencies(currencies);
-      
+
       // Update form data with base currency as default
       setFormData(prev => ({
         ...prev,
@@ -261,7 +264,47 @@ export default function Transactions() {
 
   useEffect(() => {
     fetchUserSettings();
-    fetchTransactions();
+
+    // Check for URL parameters
+    const monthParam = searchParams.get('month');
+    const categoryIdParam = searchParams.get('categoryId');
+
+    if (monthParam && categoryIdParam) {
+      try {
+        const parsedDate = parse(monthParam, 'MMM yyyy', new Date());
+        const startDate = format(startOfMonth(parsedDate), 'yyyy-MM-dd');
+        const endDate = format(endOfMonth(parsedDate), 'yyyy-MM-dd');
+        const categoryId = parseInt(categoryIdParam);
+
+        const newFilters: FilterData = {
+          start_date: startDate,
+          end_date: endDate,
+          category_id: categoryId
+        };
+
+        setActiveFilters(newFilters);
+        setFilterData(newFilters);
+        fetchTransactions("", 1, pagination.limit, newFilters);
+      } catch (error) {
+        console.error("Error parsing URL parameters:", error);
+        fetchTransactions();
+      }
+    } else if (categoryIdParam) {
+      // Handle case where only category is provided (no month)
+      const categoryId = parseInt(categoryIdParam);
+      const newFilters: FilterData = {
+        category_id: categoryId,
+        start_date: undefined,
+        end_date: undefined
+      };
+
+      setActiveFilters(newFilters);
+      setFilterData(newFilters);
+      fetchTransactions("", 1, pagination.limit, newFilters);
+    } else {
+      fetchTransactions();
+    }
+
     fetchCategories();
   }, [pagination.page, pagination.limit]);
 
@@ -274,30 +317,30 @@ export default function Transactions() {
         sort_field: sortField,
         sort_direction: sortDirection
       };
-      
+
       // Add search parameter
       if (search) {
         // Check if search query looks like an amount (contains numbers)
         const hasNumbers = /\d/.test(search);
         const isNumeric = /^\d+(\.\d+)?$/.test(search);
-        
+
         // Check if it looks like a date
-        const isDate = /^\d{1,4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,4}$/.test(search) || 
-                      /^\d{4}$/.test(search) || 
-                      /^\d{1,2}$/.test(search) ||
-                      /^\d{3}$/.test(search) ||
-                      /^\d{1}$/.test(search) ||
-                      /^\d{4}-\d{1,2}$/.test(search) ||  // YYYY-MM format
-                      /^\d{1,2}-\d{1,2}$/.test(search) || // MM-DD format
-                      /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)$/i.test(search);
-        
+        const isDate = /^\d{1,4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,4}$/.test(search) ||
+          /^\d{4}$/.test(search) ||
+          /^\d{1,2}$/.test(search) ||
+          /^\d{3}$/.test(search) ||
+          /^\d{1}$/.test(search) ||
+          /^\d{4}-\d{1,2}$/.test(search) ||  // YYYY-MM format
+          /^\d{1,2}-\d{1,2}$/.test(search) || // MM-DD format
+          /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)$/i.test(search);
+
         // Check if it's a mixed query (text + numbers)
         const hasText = /[a-zA-Z]/.test(search);
         const isMixedQuery = hasNumbers && hasText;
-        
+
         // Check if it's likely a year (4 digits starting with 19 or 20)
         const isLikelyYear = /^(19|20)\d{2}$/.test(search);
-        
+
         if (isMixedQuery) {
           // For mixed queries, search in description (which includes category names)
           // This will find transactions where description or category contains the text part
@@ -318,7 +361,7 @@ export default function Transactions() {
           params.description = search;
         }
       }
-      
+
       // Add filter parameters
       const currentFilters = filters || activeFilters;
       if (currentFilters.type) {
@@ -342,7 +385,7 @@ export default function Transactions() {
       if (currentFilters.max_amount) {
         params.max_amount = currentFilters.max_amount;
       }
-      
+
       const response = await apiClient.getTransactions(params);
       setTransactions(response.transactions || []);
       setPagination(prev => ({
@@ -375,17 +418,17 @@ export default function Transactions() {
 
   const handleSearch = (value: string) => {
     setSearchQuery(value);
-    
+
     // Clear existing timeout
     if (searchTimeout) {
       clearTimeout(searchTimeout);
     }
-    
+
     // Set new timeout for debounced search
     const timeout = setTimeout(() => {
       fetchTransactions(value, 1, pagination.limit);
     }, 300);
-    
+
     setSearchTimeout(timeout);
   };
 
@@ -480,12 +523,12 @@ export default function Transactions() {
       await apiClient.updateTransaction(transactionId, {
         category_id: categoryId
       });
-      
+
       toast({
         title: "Success",
         description: "Category updated successfully",
       });
-      
+
       // Refresh the transactions list
       fetchTransactions(searchQuery, pagination.page, pagination.limit, activeFilters);
       setInlineEditingCategory(null);
@@ -504,12 +547,12 @@ export default function Transactions() {
       await apiClient.updateTransaction(transactionId, {
         date: newDate
       });
-      
+
       toast({
         title: "Success",
         description: "Date updated successfully",
       });
-      
+
       fetchTransactions(searchQuery, pagination.page, pagination.limit, activeFilters);
       setInlineEditingDate(null);
       setInlineEditValues({});
@@ -528,12 +571,12 @@ export default function Transactions() {
       await apiClient.updateTransaction(transactionId, {
         description: newDescription
       });
-      
+
       toast({
         title: "Success",
         description: "Description updated successfully",
       });
-      
+
       fetchTransactions(searchQuery, pagination.page, pagination.limit, activeFilters);
       setInlineEditingDescription(null);
       setInlineEditValues({});
@@ -552,12 +595,12 @@ export default function Transactions() {
       await apiClient.updateTransaction(transactionId, {
         source: newSource
       });
-      
+
       toast({
         title: "Success",
         description: "Source updated successfully",
       });
-      
+
       fetchTransactions(searchQuery, pagination.page, pagination.limit, activeFilters);
       setInlineEditingSource(null);
       setInlineEditValues({});
@@ -573,7 +616,7 @@ export default function Transactions() {
 
   const handleSort = (field: string) => {
     let newDirection: 'asc' | 'desc';
-    
+
     if (sortField === field) {
       // Same field - toggle direction
       newDirection = sortDirection === 'desc' ? 'asc' : 'desc';
@@ -581,12 +624,12 @@ export default function Transactions() {
       // Different field - start with descending
       newDirection = 'desc';
     }
-    
+
     console.log(`Sorting: ${field} ${newDirection}`); // Debug log
-    
+
     setSortField(field);
     setSortDirection(newDirection);
-    
+
     // Create a temporary fetch function with the new sort parameters
     const fetchWithNewSort = async () => {
       try {
@@ -597,30 +640,30 @@ export default function Transactions() {
           sort_field: field,
           sort_direction: newDirection
         };
-        
+
         // Add search parameter
         if (searchQuery) {
           // Check if search query looks like an amount (contains numbers)
           const hasNumbers = /\d/.test(searchQuery);
           const isNumeric = /^\d+(\.\d+)?$/.test(searchQuery);
-          
+
           // Check if it looks like a date
-          const isDate = /^\d{1,4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,4}$/.test(searchQuery) || 
-                        /^\d{4}$/.test(searchQuery) || 
-                        /^\d{1,2}$/.test(searchQuery) ||
-                        /^\d{3}$/.test(searchQuery) ||
-                        /^\d{1}$/.test(searchQuery) ||
-                        /^\d{4}-\d{1,2}$/.test(searchQuery) ||  // YYYY-MM format
-                        /^\d{1,2}-\d{1,2}$/.test(searchQuery) || // MM-DD format
-                        /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)$/i.test(searchQuery);
-          
+          const isDate = /^\d{1,4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,4}$/.test(searchQuery) ||
+            /^\d{4}$/.test(searchQuery) ||
+            /^\d{1,2}$/.test(searchQuery) ||
+            /^\d{3}$/.test(searchQuery) ||
+            /^\d{1}$/.test(searchQuery) ||
+            /^\d{4}-\d{1,2}$/.test(searchQuery) ||  // YYYY-MM format
+            /^\d{1,2}-\d{1,2}$/.test(searchQuery) || // MM-DD format
+            /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)$/i.test(searchQuery);
+
           // Check if it's a mixed query (text + numbers)
           const hasText = /[a-zA-Z]/.test(searchQuery);
           const isMixedQuery = hasNumbers && hasText;
-          
+
           // Check if it's likely a year (4 digits starting with 19 or 20)
           const isLikelyYear = /^(19|20)\d{2}$/.test(searchQuery);
-          
+
           if (isMixedQuery) {
             params.description = searchQuery;
           } else if (isLikelyYear) {
@@ -634,7 +677,7 @@ export default function Transactions() {
             params.description = searchQuery;
           }
         }
-        
+
         // Add filter parameters
         if (activeFilters.type) {
           params.type = activeFilters.type;
@@ -654,7 +697,7 @@ export default function Transactions() {
         if (activeFilters.max_amount) {
           params.max_amount = activeFilters.max_amount;
         }
-        
+
         const response = await apiClient.getTransactions(params);
         setTransactions(response.transactions);
         setPagination(response.pagination);
@@ -669,7 +712,7 @@ export default function Transactions() {
         setLoading(false);
       }
     };
-    
+
     fetchWithNewSort();
   };
 
@@ -687,23 +730,23 @@ export default function Transactions() {
         sort_field: sortField,
         sort_direction: sortDirection
       };
-      
+
       // Add search parameter if exists
       if (searchQuery) {
         const hasNumbers = /\d/.test(searchQuery);
         const isNumeric = /^\d+(\.\d+)?$/.test(searchQuery);
-        const isDate = /^\d{1,4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,4}$/.test(searchQuery) || 
-                      /^\d{4}$/.test(searchQuery) || 
-                      /^\d{1,2}$/.test(searchQuery) ||
-                      /^\d{3}$/.test(searchQuery) ||
-                      /^\d{1}$/.test(searchQuery) ||
-                      /^\d{4}-\d{1,2}$/.test(searchQuery) ||
-                      /^\d{1,2}-\d{1,2}$/.test(searchQuery) ||
-                      /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)$/i.test(searchQuery);
+        const isDate = /^\d{1,4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,4}$/.test(searchQuery) ||
+          /^\d{4}$/.test(searchQuery) ||
+          /^\d{1,2}$/.test(searchQuery) ||
+          /^\d{3}$/.test(searchQuery) ||
+          /^\d{1}$/.test(searchQuery) ||
+          /^\d{4}-\d{1,2}$/.test(searchQuery) ||
+          /^\d{1,2}-\d{1,2}$/.test(searchQuery) ||
+          /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)$/i.test(searchQuery);
         const hasText = /[a-zA-Z]/.test(searchQuery);
         const isMixedQuery = hasNumbers && hasText;
         const isLikelyYear = /^(19|20)\d{2}$/.test(searchQuery);
-        
+
         if (isMixedQuery) {
           params.description = searchQuery;
         } else if (isLikelyYear) {
@@ -717,7 +760,7 @@ export default function Transactions() {
           params.description = searchQuery;
         }
       }
-      
+
       // Add filter parameters
       if (activeFilters.type) {
         params.type = activeFilters.type;
@@ -739,25 +782,25 @@ export default function Transactions() {
       }
 
       const response = await apiClient.getTransactions(params);
-      
+
       // Convert transactions to CSV format
       const headers = [
-        'Date', 'Year', 'Month', 'Details / Description', 
-        'Income Amount', 'Spending Amount', 'Capex Amount', 'Category', 
+        'Date', 'Year', 'Month', 'Details / Description',
+        'Income Amount', 'Spending Amount', 'Capex Amount', 'Category',
         'Source / Bank', 'Transaction Type', 'Currency', 'Spending for non-EUR currency'
       ];
-      
+
       const csvRows = [headers.join(',')];
-      
+
       response.transactions.forEach((transaction: Transaction) => {
         const date = new Date(transaction.date);
         const year = date.getFullYear().toString();
         const month = (date.getMonth() + 1).toString().padStart(2, '0');
-        
+
         const incomeAmount = transaction.type === 'income' ? Math.abs(transaction.amount).toFixed(2) : '0.00';
         const spendingAmount = transaction.type === 'expense' ? Math.abs(transaction.amount).toFixed(2) : '0.00';
         const capexAmount = transaction.type === 'capex' ? Math.abs(transaction.amount).toFixed(2) : '0.00';
-        
+
         const row = [
           transaction.date,
           year,
@@ -772,12 +815,12 @@ export default function Transactions() {
           '"EUR"',
           '""'
         ];
-        
+
         csvRows.push(row.join(','));
       });
-      
+
       const csvContent = csvRows.join('\n');
-      
+
       // Create and download file
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement('a');
@@ -788,7 +831,7 @@ export default function Transactions() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      
+
       toast({
         title: "Export Successful",
         description: `${response.transactions.length} transactions exported to CSV`,
@@ -834,7 +877,7 @@ export default function Transactions() {
         source: formData.source,
         currency: formData.currency
       });
-      
+
       toast({
         title: "Success",
         description: "Transaction created successfully",
@@ -855,7 +898,7 @@ export default function Transactions() {
 
   const handleEditTransaction = async () => {
     if (!editingTransaction) return;
-    
+
     if (!formData.description.trim() || !formData.amount.trim()) {
       toast({
         title: "Error",
@@ -885,7 +928,7 @@ export default function Transactions() {
         date: formData.date,
         source: formData.source
       });
-      
+
       toast({
         title: "Success",
         description: "Transaction updated successfully",
@@ -948,60 +991,60 @@ export default function Transactions() {
       'briefcase': Briefcase,
       'trending-up': TrendingUp,
       'more-horizontal': MoreHorizontal,
-      
+
       // Food & Dining
       'utensils': Utensils,
       'coffee': Coffee,
       'shopping-cart': ShoppingCart,
-      
+
       // Transportation
       'wrench': Wrench,
       'fuel': Fuel,
       'parking-circle': ParkingCircle,
       'plane': Plane,
-      
+
       // Shopping & Retail
       'shirt': Shirt,
       'sofa': Sofa,
       'book-open': BookOpen,
       'pen-tool': PenTool,
       'gift': Gift,
-      
+
       // Health & Medical
       'stethoscope': Stethoscope,
       'pill': Pill,
-      
+
       // Home & Utilities
       'shield': Shield,
       'file-text': FileText,
       'building': Building,
       'trees': Trees,
       'tree': Trees, // Map 'tree' to 'Trees' icon
-      
+
       // Business & Work
       'package': Package,
       'repeat': Repeat,
-      
+
       // Services
       'mail': Mail,
       'truck': Truck,
       'tv': Tv,
-      
+
       // Technology & Communication
       'smartphone': Smartphone,
-      
+
       // Energy & Environment
       'sun': Sun,
-      
+
       // Education & Family
       'graduation-cap': GraduationCap,
       'baby': Baby,
-      
+
       // Other
       'circle-dot': CircleDot,
       'help-circle': HelpCircle,
       'credit-card': CreditCard,
-      
+
       // Additional icons for variety
       'camera': Camera,
       'music': Music,
@@ -1317,206 +1360,206 @@ export default function Transactions() {
                       <TableHead className="w-8 md:w-12 px-1 md:px-4"></TableHead>
                     </TableRow>
                   </TableHeader>
-                <TableBody>
-                  {transactions.map((transaction) => (
-                    <TableRow key={transaction.id} className="min-h-12">
-                      <TableCell className="text-muted-foreground text-xs md:text-sm py-2 px-1 md:px-4 whitespace-nowrap align-top">
-                        {inlineEditingDate === transaction.id ? (
-                          <Input
-                            type="date"
-                            value={inlineEditValues.date || transaction.date}
-                            onChange={(e) => setInlineEditValues(prev => ({ ...prev, date: e.target.value }))}
-                            onBlur={() => handleInlineDateChange(transaction.id, inlineEditValues.date || transaction.date)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                handleInlineDateChange(transaction.id, inlineEditValues.date || transaction.date);
-                              } else if (e.key === 'Escape') {
-                                setInlineEditingDate(null);
-                                setInlineEditValues({});
-                              }
-                            }}
-                            className="h-7 md:h-8 text-xs md:text-sm"
-                            autoFocus
-                          />
-                        ) : (
-                          <div
-                            className="cursor-pointer hover:bg-muted/50 px-1 py-1 rounded"
-                            onClick={() => {
-                              setInlineEditingDate(transaction.id);
-                              setInlineEditValues({ date: transaction.date });
-                            }}
-                          >
-                            <div className="hidden md:block">{transaction.date}</div>
-                            <div className="md:hidden text-xs">{transaction.date.slice(5)}</div>
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell className="py-2 px-2 md:px-4 align-top">
-                        {inlineEditingDescription === transaction.id ? (
-                          <div className="flex items-start gap-2">
-                            <div
-                              className="w-2 h-2 md:w-2.5 md:h-2.5 rounded-full flex-shrink-0 mt-1.5"
-                              style={{ backgroundColor: getCategoryColor(transaction.category_color) }}
-                            />
+                  <TableBody>
+                    {transactions.map((transaction) => (
+                      <TableRow key={transaction.id} className="min-h-12">
+                        <TableCell className="text-muted-foreground text-xs md:text-sm py-2 px-1 md:px-4 whitespace-nowrap align-top">
+                          {inlineEditingDate === transaction.id ? (
                             <Input
-                              value={inlineEditValues.description || transaction.description}
-                              onChange={(e) => setInlineEditValues(prev => ({ ...prev, description: e.target.value }))}
-                              onBlur={() => handleInlineDescriptionChange(transaction.id, inlineEditValues.description || transaction.description)}
+                              type="date"
+                              value={inlineEditValues.date || transaction.date}
+                              onChange={(e) => setInlineEditValues(prev => ({ ...prev, date: e.target.value }))}
+                              onBlur={() => handleInlineDateChange(transaction.id, inlineEditValues.date || transaction.date)}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
-                                  handleInlineDescriptionChange(transaction.id, inlineEditValues.description || transaction.description);
+                                  handleInlineDateChange(transaction.id, inlineEditValues.date || transaction.date);
                                 } else if (e.key === 'Escape') {
-                                  setInlineEditingDescription(null);
+                                  setInlineEditingDate(null);
                                   setInlineEditValues({});
                                 }
                               }}
-                              className="text-xs md:text-sm"
+                              className="h-7 md:h-8 text-xs md:text-sm"
                               autoFocus
                             />
-                          </div>
-                        ) : (
-                          <div className="flex flex-col gap-1">
-                            <div className="flex items-start gap-1.5">
+                          ) : (
+                            <div
+                              className="cursor-pointer hover:bg-muted/50 px-1 py-1 rounded"
+                              onClick={() => {
+                                setInlineEditingDate(transaction.id);
+                                setInlineEditValues({ date: transaction.date });
+                              }}
+                            >
+                              <div className="hidden md:block">{transaction.date}</div>
+                              <div className="md:hidden text-xs">{transaction.date.slice(5)}</div>
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell className="py-2 px-2 md:px-4 align-top">
+                          {inlineEditingDescription === transaction.id ? (
+                            <div className="flex items-start gap-2">
                               <div
-                                className="w-2 h-2 md:w-2.5 md:h-2.5 rounded-full flex-shrink-0 mt-1"
+                                className="w-2 h-2 md:w-2.5 md:h-2.5 rounded-full flex-shrink-0 mt-1.5"
                                 style={{ backgroundColor: getCategoryColor(transaction.category_color) }}
                               />
-                              <div
-                                className="font-medium text-xs md:text-sm break-words leading-tight flex-1 cursor-pointer hover:bg-muted/50 px-1 py-1 rounded"
-                                onClick={() => {
-                                  setInlineEditingDescription(transaction.id);
-                                  setInlineEditValues({ description: transaction.description });
+                              <Input
+                                value={inlineEditValues.description || transaction.description}
+                                onChange={(e) => setInlineEditValues(prev => ({ ...prev, description: e.target.value }))}
+                                onBlur={() => handleInlineDescriptionChange(transaction.id, inlineEditValues.description || transaction.description)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    handleInlineDescriptionChange(transaction.id, inlineEditValues.description || transaction.description);
+                                  } else if (e.key === 'Escape') {
+                                    setInlineEditingDescription(null);
+                                    setInlineEditValues({});
+                                  }
                                 }}
-                              >
-                                {transaction.description}
-                              </div>
+                                className="text-xs md:text-sm"
+                                autoFocus
+                              />
                             </div>
-                            <div className="sm:hidden flex items-center gap-2 ml-3 text-xs">
-                              <span className="text-muted-foreground truncate">{transaction.category_name}</span>
-                              <Badge variant={transaction.type === 'income' ? 'default' : 'secondary'} className="text-xs px-1.5 py-0">
-                                {transaction.type}
-                              </Badge>
-                            </div>
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell className="py-2 px-1 md:px-4 hidden sm:table-cell align-top">
-                        {inlineEditingCategory === transaction.id ? (
-                          <Select
-                            value={transaction.category_id?.toString() || 'none'}
-                            onValueChange={(value) => handleInlineCategoryChange(transaction.id, value === 'none' ? undefined : parseInt(value))}
-                            onOpenChange={(open) => !open && setInlineEditingCategory(null)}
-                          >
-                            <SelectTrigger className="h-7 text-xs">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none">No Category</SelectItem>
-                              {categories.map((category) => (
-                                <SelectItem key={category.id} value={category.id.toString()}>
-                                  <div className="flex items-center gap-2">
-                                    {(() => {
-                                      const IconComponent = getCategoryIcon(category.icon);
-                                      return <IconComponent className="w-3 h-3" style={{ color: category.color }} />;
-                                    })()}
-                                    <span className="text-xs">{category.name}</span>
-                                  </div>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <div
-                            className="flex items-center gap-1 cursor-pointer hover:bg-muted/50 px-1 py-1 rounded text-xs"
-                            onClick={() => setInlineEditingCategory(transaction.id)}
-                          >
-                            {transaction.category_icon ? (
-                              <div className="flex items-center gap-1">
-                                {(() => {
-                                  const IconComponent = getCategoryIcon(transaction.category_icon);
-                                  return <IconComponent className="w-2.5 h-2.5 md:w-3 md:h-3" style={{ color: getCategoryColor(transaction.category_color) }} />;
-                                })()}
-                                <span className="text-xs truncate max-w-[80px]">
-                                  {transaction.category_name || 'Uncategorized'}
-                                </span>
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-1">
+                          ) : (
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-start gap-1.5">
                                 <div
-                                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                                  className="w-2 h-2 md:w-2.5 md:h-2.5 rounded-full flex-shrink-0 mt-1"
                                   style={{ backgroundColor: getCategoryColor(transaction.category_color) }}
                                 />
-                                <span className="text-xs truncate max-w-[80px]">
-                                  {transaction.category_name || 'Uncategorized'}
-                                </span>
+                                <div
+                                  className="font-medium text-xs md:text-sm break-words leading-tight flex-1 cursor-pointer hover:bg-muted/50 px-1 py-1 rounded"
+                                  onClick={() => {
+                                    setInlineEditingDescription(transaction.id);
+                                    setInlineEditValues({ description: transaction.description });
+                                  }}
+                                >
+                                  {transaction.description}
+                                </div>
                               </div>
-                            )}
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell className="py-2 px-1 md:px-4 hidden lg:table-cell align-top">
-                        {inlineEditingSource === transaction.id ? (
-                          <Input
-                            value={inlineEditValues.source || transaction.source || 'Manual Entry'}
-                            onChange={(e) => setInlineEditValues(prev => ({ ...prev, source: e.target.value }))}
-                            onBlur={() => handleInlineSourceChange(transaction.id, inlineEditValues.source || transaction.source || 'Manual Entry')}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                handleInlineSourceChange(transaction.id, inlineEditValues.source || transaction.source || 'Manual Entry');
-                              } else if (e.key === 'Escape') {
-                                setInlineEditingSource(null);
-                                setInlineEditValues({});
-                              }
-                            }}
-                            className="h-7 md:h-8 text-xs md:text-sm"
-                            autoFocus
-                          />
-                        ) : (
-                          <div
-                            className="text-xs md:text-sm text-muted-foreground cursor-pointer hover:bg-muted/50 px-1 py-1 rounded truncate"
-                            onClick={() => {
-                              setInlineEditingSource(transaction.id);
-                              setInlineEditValues({ source: transaction.source || 'Manual Entry' });
-                            }}
-                          >
-                            {transaction.source || 'Manual Entry'}
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell className="py-2 px-1 md:px-4 hidden md:table-cell align-top">
-                        <Badge variant={transaction.type === 'income' ? 'default' : 'secondary'} className="text-xs px-2 py-0.5">
-                          {transaction.type}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className={`text-right font-medium text-xs md:text-sm py-2 px-1 md:px-4 whitespace-nowrap align-top ${getAmountColor(transaction.type)}`}>
-                        {formatAmount(transaction.amount, transaction.type)}
-                      </TableCell>
-                      <TableCell className="py-2 px-1 md:px-4 align-top">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 md:h-7 md:w-7">
-                              <MoreHorizontal className="w-3 h-3" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => openEditDialog(transaction)}>
-                              <Edit className="w-3 h-3 mr-2" />
-                              Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-destructive"
-                              onClick={() => handleDeleteTransaction(transaction.id)}
+                              <div className="sm:hidden flex items-center gap-2 ml-3 text-xs">
+                                <span className="text-muted-foreground truncate">{transaction.category_name}</span>
+                                <Badge variant={transaction.type === 'income' ? 'default' : 'secondary'} className="text-xs px-1.5 py-0">
+                                  {transaction.type}
+                                </Badge>
+                              </div>
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell className="py-2 px-1 md:px-4 hidden sm:table-cell align-top">
+                          {inlineEditingCategory === transaction.id ? (
+                            <Select
+                              value={transaction.category_id?.toString() || 'none'}
+                              onValueChange={(value) => handleInlineCategoryChange(transaction.id, value === 'none' ? undefined : parseInt(value))}
+                              onOpenChange={(open) => !open && setInlineEditingCategory(null)}
                             >
-                              <Trash2 className="w-3 h-3 mr-2" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                              <SelectTrigger className="h-7 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">No Category</SelectItem>
+                                {categories.map((category) => (
+                                  <SelectItem key={category.id} value={category.id.toString()}>
+                                    <div className="flex items-center gap-2">
+                                      {(() => {
+                                        const IconComponent = getCategoryIcon(category.icon);
+                                        return <IconComponent className="w-3 h-3" style={{ color: category.color }} />;
+                                      })()}
+                                      <span className="text-xs">{category.name}</span>
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <div
+                              className="flex items-center gap-1 cursor-pointer hover:bg-muted/50 px-1 py-1 rounded text-xs"
+                              onClick={() => setInlineEditingCategory(transaction.id)}
+                            >
+                              {transaction.category_icon ? (
+                                <div className="flex items-center gap-1">
+                                  {(() => {
+                                    const IconComponent = getCategoryIcon(transaction.category_icon);
+                                    return <IconComponent className="w-2.5 h-2.5 md:w-3 md:h-3" style={{ color: getCategoryColor(transaction.category_color) }} />;
+                                  })()}
+                                  <span className="text-xs truncate max-w-[80px]">
+                                    {transaction.category_name || 'Uncategorized'}
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1">
+                                  <div
+                                    className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                                    style={{ backgroundColor: getCategoryColor(transaction.category_color) }}
+                                  />
+                                  <span className="text-xs truncate max-w-[80px]">
+                                    {transaction.category_name || 'Uncategorized'}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell className="py-2 px-1 md:px-4 hidden lg:table-cell align-top">
+                          {inlineEditingSource === transaction.id ? (
+                            <Input
+                              value={inlineEditValues.source || transaction.source || 'Manual Entry'}
+                              onChange={(e) => setInlineEditValues(prev => ({ ...prev, source: e.target.value }))}
+                              onBlur={() => handleInlineSourceChange(transaction.id, inlineEditValues.source || transaction.source || 'Manual Entry')}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  handleInlineSourceChange(transaction.id, inlineEditValues.source || transaction.source || 'Manual Entry');
+                                } else if (e.key === 'Escape') {
+                                  setInlineEditingSource(null);
+                                  setInlineEditValues({});
+                                }
+                              }}
+                              className="h-7 md:h-8 text-xs md:text-sm"
+                              autoFocus
+                            />
+                          ) : (
+                            <div
+                              className="text-xs md:text-sm text-muted-foreground cursor-pointer hover:bg-muted/50 px-1 py-1 rounded truncate"
+                              onClick={() => {
+                                setInlineEditingSource(transaction.id);
+                                setInlineEditValues({ source: transaction.source || 'Manual Entry' });
+                              }}
+                            >
+                              {transaction.source || 'Manual Entry'}
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell className="py-2 px-1 md:px-4 hidden md:table-cell align-top">
+                          <Badge variant={transaction.type === 'income' ? 'default' : 'secondary'} className="text-xs px-2 py-0.5">
+                            {transaction.type}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className={`text-right font-medium text-xs md:text-sm py-2 px-1 md:px-4 whitespace-nowrap align-top ${getAmountColor(transaction.type)}`}>
+                          {formatAmount(transaction.amount, transaction.type)}
+                        </TableCell>
+                        <TableCell className="py-2 px-1 md:px-4 align-top">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-6 w-6 md:h-7 md:w-7">
+                                <MoreHorizontal className="w-3 h-3" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => openEditDialog(transaction)}>
+                                <Edit className="w-3 h-3 mr-2" />
+                                Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-destructive"
+                                onClick={() => handleDeleteTransaction(transaction.id)}
+                              >
+                                <Trash2 className="w-3 h-3 mr-2" />
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
 
               {/* Pagination */}
@@ -1651,7 +1694,7 @@ export default function Transactions() {
             </div>
           </div>
           <DialogFooter>
-            <Button 
+            <Button
               onClick={handleAddTransaction}
               disabled={submitting || !formData.description.trim() || !formData.amount.trim()}
             >
@@ -1761,7 +1804,7 @@ export default function Transactions() {
             </div>
           </div>
           <DialogFooter>
-            <Button 
+            <Button
               onClick={handleEditTransaction}
               disabled={submitting || !formData.description.trim() || !formData.amount.trim()}
             >
@@ -1786,10 +1829,10 @@ export default function Transactions() {
               <Label htmlFor="filter-type" className="text-right">
                 Type
               </Label>
-              <Select 
-                value={filterData.type || 'all'} 
-                onValueChange={(value) => setFilterData(prev => ({ 
-                  ...prev, 
+              <Select
+                value={filterData.type || 'all'}
+                onValueChange={(value) => setFilterData(prev => ({
+                  ...prev,
                   type: value === 'all' ? undefined : value as 'income' | 'expense' | 'capex'
                 }))}
               >
@@ -1808,11 +1851,11 @@ export default function Transactions() {
               <Label htmlFor="filter-category" className="text-right">
                 Category
               </Label>
-              <Select 
-                value={filterData.category_id?.toString() || 'all'} 
-                onValueChange={(value) => setFilterData(prev => ({ 
-                  ...prev, 
-                  category_id: value === 'all' ? undefined : parseInt(value) 
+              <Select
+                value={filterData.category_id?.toString() || 'all'}
+                onValueChange={(value) => setFilterData(prev => ({
+                  ...prev,
+                  category_id: value === 'all' ? undefined : parseInt(value)
                 }))}
               >
                 <SelectTrigger className="col-span-3">
