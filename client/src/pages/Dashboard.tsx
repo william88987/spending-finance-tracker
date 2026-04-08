@@ -958,17 +958,21 @@ export default function Dashboard() {
   }, [transactionsLoading, hasMoreTransactions, dateRange]);
 
   const handlePreviousMonth = () => {
-    setDateRange(prev => ({
-      from: subMonths(prev.from, 1),
-      to: subMonths(prev.to, 1)
-    }));
+    setDateRange(prev => {
+      const days = Math.round((prev.to.getTime() - prev.from.getTime()) / (1000 * 60 * 60 * 24));
+      const newFrom = subDays(prev.from, days + 1);
+      const newTo = subDays(prev.from, 1);
+      return { from: newFrom, to: newTo };
+    });
   };
 
   const handleNextMonth = () => {
-    setDateRange(prev => ({
-      from: addMonths(prev.from, 1),
-      to: addMonths(prev.to, 1)
-    }));
+    setDateRange(prev => {
+      const days = Math.round((prev.to.getTime() - prev.from.getTime()) / (1000 * 60 * 60 * 24));
+      const newFrom = addDays(prev.to, 1);
+      const newTo = addDays(prev.to, days + 1);
+      return { from: newFrom, to: newTo };
+    });
   };
 
   const handleCurrentMonth = () => {
@@ -1106,7 +1110,7 @@ export default function Dashboard() {
                 </Button>
               </PopoverTrigger>
               <PopoverContent
-                className="w-auto p-3 bg-white border shadow-xl"
+                className="w-auto p-3 bg-background border shadow-xl"
                 align="center"
                 sideOffset={8}
                 side="bottom"
@@ -1116,8 +1120,11 @@ export default function Dashboard() {
                   defaultMonth={dateRange.from}
                   selected={dateRange}
                   onSelect={(range: any) => {
-                    if (range?.from && range?.to) {
-                      setDateRange(range);
+                    if (range?.from) {
+                      setDateRange({
+                        from: range.from,
+                        to: range.to || range.from
+                      });
                     }
                   }}
                   numberOfMonths={1}
@@ -1128,8 +1135,11 @@ export default function Dashboard() {
                   defaultMonth={dateRange.from}
                   selected={dateRange}
                   onSelect={(range: any) => {
-                    if (range?.from && range?.to) {
-                      setDateRange(range);
+                    if (range?.from) {
+                      setDateRange({
+                        from: range.from,
+                        to: range.to || range.from
+                      });
                     }
                   }}
                   numberOfMonths={2}
