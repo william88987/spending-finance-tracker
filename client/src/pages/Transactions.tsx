@@ -468,15 +468,11 @@ export default function Transactions() {
   };
 
   const openAddDialog = () => {
-    setFormData({
+    setFormData(prev => ({
+      ...prev,
       description: '',
-      amount: '',
-      type: 'expense',
-      category_id: undefined,
-      date: new Date().toISOString().split('T')[0],
-      source: 'Manual Entry',
-      currency: baseCurrency
-    });
+      amount: ''
+    }));
     setIsAddDialogOpen(true);
   };
 
